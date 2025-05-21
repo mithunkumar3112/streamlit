@@ -9,12 +9,15 @@ from PIL import Image
 from dotenv import load_dotenv
 import google.generativeai as genai
 
-# Set page configuration at the very beginning
+# Set page configuration
 st.set_page_config(page_title="AI Job Assistant", layout="wide")
 
-# Load environment variables
+# Load environment variables (for local development)
 load_dotenv()
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+
+# Load API key from .env or st.secrets (cloud)
+api_key = os.getenv("GOOGLE_API_KEY", st.secrets.get("GOOGLE_API_KEY"))
+genai.configure(api_key=api_key)
 
 # Sidebar Navigation
 st.sidebar.title("Navigation")
@@ -45,20 +48,17 @@ def input_pdf_setup(uploaded_file):
     else:
         raise FileNotFoundError("No file uploaded")
 
-# Improved Extract Match Percentage
+# Extract Match Percentage
 def extract_match_percentage(response_text):
     match = re.search(r"Match\s*Percentage[:\s]*([\d]+)%", response_text, re.IGNORECASE)
     if match:
         return int(match.group(1))
-
-    # Additional checks to catch different formats
     numbers = re.findall(r'\b\d+\b', response_text)
     for num in numbers:
         num = int(num)
-        if 50 <= num <= 100:  # Avoid extremely low incorrect values
+        if 50 <= num <= 100:
             return num
-
-    return 50  # Default minimum threshold if AI response is unclear
+    return 50
 
 # Convert Match Percentage to Words
 def match_percentage_to_words(match_percentage):
@@ -115,7 +115,6 @@ if page == "Resume Analyzer":
     Ensure the evaluation is concise, relevant, and data-driven.
     """
 
-    # Actions
     if submit1 and uploaded_file:
         pdf_image, pdf_base64 = input_pdf_setup(uploaded_file)
         response = get_gemini_response(input_text, [{"mime_type": "image/png", "data": pdf_base64}], input_prompt1)
@@ -139,14 +138,13 @@ if page == "Resume Analyzer":
         display_pie_chart(match_percentage)
 
         st.markdown(f"<h3 style='text-align: center;'>{match_percentage_to_words(match_percentage)}</h3>", unsafe_allow_html=True)
-
         st.subheader("📌 Detailed Analysis")
         st.write(response)
 
     elif (submit1 or submit2 or submit3) and not uploaded_file:
         st.error("❌ Please upload your resume!")
 
-# Cold Email Generator Feature with Resume Extraction
+# Cold Email Generator
 elif page == "Cold Email Generator":
     st.markdown("<h1 style='text-align: center;'>📧 AI Cold Email Generator</h1>", unsafe_allow_html=True)
 
@@ -155,14 +153,12 @@ elif page == "Cold Email Generator":
     if uploaded_file:
         st.success("✅ Resume Uploaded Successfully!")
         extracted_text = extract_text_from_pdf(uploaded_file)
-
         st.text_area("Extracted Resume Details:", value=extracted_text, height=200, disabled=True)
 
     job_description = st.text_area("Enter Job Description:", height=200)
     linkedin = st.text_input("Enter Your LinkedIn Profile (Optional):")
     tone = st.radio("Select Email Tone:", ["Formal", "Casual"], index=0)
 
-    # Function to Generate Cold Email Using Extracted Resume Data
     def get_cold_email(job_description, resume_text, linkedin, tone):
         prompt = f"""
         Write a professional cold email for a job opportunity based on the provided resume details and job description.
@@ -178,7 +174,6 @@ elif page == "Cold Email Generator":
 
         Generate a complete email with proper formatting.
         """
-
         model = genai.GenerativeModel('gemini-1.5-flash')
         response = model.generate_content(prompt)
         return response.text
