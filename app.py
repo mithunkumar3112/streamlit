@@ -12,11 +12,14 @@ import google.generativeai as genai
 # Set page configuration
 st.set_page_config(page_title="AI Job Assistant", layout="wide")
 
-# Load environment variables (for local development)
+# Load environment variables
 load_dotenv()
+api_key = os.getenv("GOOGLE_API_KEY")
 
-# Load API key from .env or st.secrets (cloud)
-api_key = os.getenv("GOOGLE_API_KEY", st.secrets.get("GOOGLE_API_KEY"))
+if not api_key:
+    st.error("❌ GOOGLE_API_KEY not found. Please set it in a .env file or Streamlit Secrets.")
+    st.stop()
+
 genai.configure(api_key=api_key)
 
 # Sidebar Navigation
@@ -24,12 +27,22 @@ st.sidebar.title("Navigation")
 page = st.sidebar.radio("Select a Feature", ["Resume Analyzer", "Cold Email Generator"])
 
 # Function to Get Gemini AI Response
-def get_gemini_response(input_text, pdf_content, prompt):
+def get_gemini_response(input_text, image_base64, prompt):
     model = genai.GenerativeModel('gemini-1.5-flash')
-    response = model.generate_content([input_text, pdf_content[0], prompt])
+    image_part = {
+        "inline_data": {
+            "mime_type": "image/png",
+            "data": image_base64
+        }
+    }
+    response = model.generate_content([
+        {"text": input_text},
+        image_part,
+        {"text": prompt}
+    ])
     return response.text
 
-# Function to Extract Text from PDF Resume
+# Extract Text from PDF
 def extract_text_from_pdf(uploaded_file):
     with fitz.open(stream=uploaded_file.read(), filetype="pdf") as pdf_doc:
         text = ""
@@ -37,7 +50,7 @@ def extract_text_from_pdf(uploaded_file):
             text += page.get_text("text") + "\n"
     return text.strip()
 
-# Function to Extract Resume Image and Encode
+# Extract Resume Image and Encode
 def input_pdf_setup(uploaded_file):
     if uploaded_file is not None:
         with fitz.open(stream=uploaded_file.read(), filetype="pdf") as pdf_doc:
@@ -53,6 +66,7 @@ def extract_match_percentage(response_text):
     match = re.search(r"Match\s*Percentage[:\s]*([\d]+)%", response_text, re.IGNORECASE)
     if match:
         return int(match.group(1))
+
     numbers = re.findall(r'\b\d+\b', response_text)
     for num in numbers:
         num = int(num)
@@ -60,7 +74,7 @@ def extract_match_percentage(response_text):
             return num
     return 50
 
-# Convert Match Percentage to Words
+# Convert Match % to Words
 def match_percentage_to_words(match_percentage):
     if match_percentage >= 80:
         return "Excellent Match ✅"
@@ -95,54 +109,50 @@ if page == "Resume Analyzer":
     if uploaded_file:
         st.success("✅ PDF Uploaded Successfully!")
 
-    # Buttons
     submit1 = st.button("Analyze Resume", key="analyze_resume")
     submit2 = st.button("How Can I Improve My Skills?", key="improve_skills")
     submit3 = st.button("Match Resume with Job Description", key="match_resume")
 
-    # Prompts
     input_prompt1 = """Analyze the resume and job description to provide feedback..."""
     input_prompt2 = """Suggest career improvements based on resume analysis..."""
     input_prompt3 = """
     You are an advanced AI-based ATS scanner. Evaluate the resume against the job description 
     and provide a clear match percentage between 0% to 100%. 
-    
+
     Output Format Example:
     - Match Percentage: XX%
     - Missing Keywords: [List missing skills/tools]
     - Final Thoughts: Summary of strengths, weaknesses, and a recommendation.
-    
+
     Ensure the evaluation is concise, relevant, and data-driven.
     """
 
-    if submit1 and uploaded_file:
-        pdf_image, pdf_base64 = input_pdf_setup(uploaded_file)
-        response = get_gemini_response(input_text, [{"mime_type": "image/png", "data": pdf_base64}], input_prompt1)
-        st.subheader("📌 Analysis")
-        st.write(response)
-
-    elif submit2 and uploaded_file:
-        pdf_image, pdf_base64 = input_pdf_setup(uploaded_file)
-        response = get_gemini_response(input_text, [{"mime_type": "image/png", "data": pdf_base64}], input_prompt2)
-        st.subheader("📌 Improvement Suggestions")
-        st.write(response)
-
-    elif submit3 and uploaded_file:
-        pdf_image, pdf_base64 = input_pdf_setup(uploaded_file)
-        response = get_gemini_response(input_text, [{"mime_type": "image/png", "data": pdf_base64}], input_prompt3)
-        match_percentage = extract_match_percentage(response)
-
-        st.image(pdf_image, caption="Resume First Page", width=400)
-        st.subheader(f"📌 Match Percentage: {match_percentage}%")
-
-        display_pie_chart(match_percentage)
-
-        st.markdown(f"<h3 style='text-align: center;'>{match_percentage_to_words(match_percentage)}</h3>", unsafe_allow_html=True)
-        st.subheader("📌 Detailed Analysis")
-        st.write(response)
-
-    elif (submit1 or submit2 or submit3) and not uploaded_file:
+    if (submit1 or submit2 or submit3) and not uploaded_file:
         st.error("❌ Please upload your resume!")
+
+    elif uploaded_file:
+        pdf_image, pdf_base64 = input_pdf_setup(uploaded_file)
+
+        if submit1:
+            response = get_gemini_response(input_text, pdf_base64, input_prompt1)
+            st.subheader("📌 Analysis")
+            st.write(response)
+
+        elif submit2:
+            response = get_gemini_response(input_text, pdf_base64, input_prompt2)
+            st.subheader("📌 Improvement Suggestions")
+            st.write(response)
+
+        elif submit3:
+            response = get_gemini_response(input_text, pdf_base64, input_prompt3)
+            match_percentage = extract_match_percentage(response)
+
+            st.image(pdf_image, caption="Resume First Page", width=400)
+            st.subheader(f"📌 Match Percentage: {match_percentage}%")
+            display_pie_chart(match_percentage)
+            st.markdown(f"<h3 style='text-align: center;'>{match_percentage_to_words(match_percentage)}</h3>", unsafe_allow_html=True)
+            st.subheader("📌 Detailed Analysis")
+            st.write(response)
 
 # Cold Email Generator
 elif page == "Cold Email Generator":
